@@ -1,5 +1,9 @@
+
+
 import streamlit as st
 from src.recommender import load_songs, recommend_songs
+
+print("testing...")
 
 st.set_page_config(page_title="Aura", page_icon="🎧", layout="centered")
 
