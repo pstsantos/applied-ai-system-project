@@ -2,9 +2,11 @@
 
 ## Project Summary
 
-Aura is a music recommender that scores songs against a user's taste profile and returns the five best matches with a plain-language explanation for each.
+Aura is a music recommender with two ways in: a **vibe check-in** where you describe what's going on in plain English ("I just passed Calc II", "rainy day, can't focus"), and a **manual tuning** mode where you dial genre, mood, energy, valence, danceability, and tempo by hand.
 
-You describe what you want — genre, mood, energy level, tempo, and whether you like acoustic music — and Aura ranks every song in the catalog by how well it fits. Each result tells you exactly which features drove the score.
+Behind the vibe check-in, a **RAG pipeline** retrieves the most semantically similar examples from a labelled corpus of life-moment vignettes and uses them to ground a Claude API call that maps free-text vibes into the same parameter dict the manual mode produces. The LLM never invents genres, never goes out of range, and never crashes the user — a Pydantic schema validates every output and a deterministic fallback preset takes over on any failure.
+
+The deterministic scoring engine does the actual ranking. The LLM is a UX adapter on the front; the recommender stays testable and the AI layer stays swappable.
 
 The project also includes adversarial tests that expose real bugs in the scoring logic, a model card documenting limitations and bias, and a reflection on what a simple algorithm can and can't do.
 
@@ -49,6 +51,79 @@ Once every song has a score, the system applies four steps to decide the final l
 4. **Filters** — songs the user has already heard can be excluded before ranking begins
 
 The final output is an ordered list of songs, each paired with its score and a plain-language explanation of why it was recommended.
+
+---
+
+## Vibe Check-In: RAG-Grounded Vibe Extraction
+
+Most users don't want to dial seven sliders to hear five songs. The vibe check-in replaces that with a short natural-language input ("I just passed Calc II") and a few optional mood bubbles, then uses **Retrieval-Augmented Generation** to translate that into the same `UserPrefs` dict the recommender already accepts.
+
+### How RAG is integrated
+
+A small corpus of ~30 hand-labelled vignettes lives in [`data/vignettes.jsonl`](data/vignettes.jsonl). Each entry pairs a real human situation with a target preset:
+
+```json
+{"vignette": "Just got broken up with, want to feel my feelings",
+ "preset": {"genre": ["indie pop", "pop"], "mood": ["melancholic", "moody"],
+            "target_energy": 0.35, "target_valence": 0.2, ...}}
+```
+
+At runtime, the system:
+
+1. **Embeds** the user's input with `sentence-transformers/all-MiniLM-L6-v2` (local, free, deterministic)
+2. **Retrieves** the top-3 most cosine-similar vignettes from the corpus
+3. **Injects** them into the Claude API prompt as worked few-shot examples
+4. **Validates** the LLM's JSON output against a Pydantic schema with bounded ranges and a closed genre/mood vocabulary
+5. **Falls back** to a safe preset (incorporating the user's mood bubbles) if anything fails — timeout, malformed JSON, schema violation
+6. **Logs** every call as a structured JSON line to `logs/aura.jsonl`
+
+The retrieved vignettes **actively shape** the LLM's output — they are not printed alongside a generic answer. Replace the corpus, change the system's behaviour. That is the rubric's RAG requirement satisfied.
+
+### System architecture
+
+```mermaid
+sequenceDiagram
+    actor User
+    participant UI as Streamlit UI
+    participant R as VignetteRetriever
+    participant C as Vignette Corpus
+    participant E as VibeExtractor
+    participant LLM as Claude API
+    participant V as Pydantic Schema
+    participant Rec as Recommender
+    participant L as logs/aura.jsonl
+
+    User->>UI: bubbles + "I just passed Calc II"
+    UI->>R: retrieve(query, k=3)
+    R->>C: load cached embeddings
+    R-->>UI: top-3 vignettes
+    UI->>E: extract(text, bubbles, vignettes)
+    E->>LLM: prompt grounded with retrieved vignettes
+    LLM-->>E: raw JSON params
+    E->>V: validate(raw_json)
+    alt valid
+        V-->>E: UserPrefs
+    else invalid / timeout / parse error
+        V-->>E: fallback preset
+        E->>UI: trigger warning banner
+    end
+    E->>L: append {ts, input, retrieved, output, latency, schema_valid, error}
+    E-->>UI: UserPrefs
+    UI->>Rec: recommend_songs(prefs, songs, k=5)
+    Rec-->>UI: top-5 with scores
+    UI-->>User: cards + Open-in-Spotify + copy-paste playlist
+```
+
+### Guardrails and reliability
+
+- **Schema validation**: every LLM response is parsed and validated against [`src/schema.py`](src/schema.py). Out-of-range values, invented genres, missing fields, and malformed JSON all reject cleanly.
+- **Bounded ranges**: `target_energy/valence/danceability ∈ [0, 1]`, `target_tempo_bpm ∈ [60, 200]` — the range over which the recommender's normalization is well-defined.
+- **Closed vocabulary**: `genre` and `mood` are `Literal` types matching the songs catalog. The LLM cannot widen the vocabulary at runtime.
+- **Timeout**: 10-second cap on the LLM call. Beyond that, fallback path triggers.
+- **Deterministic fallback**: when extraction fails, a safe preset (preserving the user's mood bubble selections) is used so the recommender always receives valid input. The user sees a banner explaining what happened.
+- **Structured logging**: `logs/aura.jsonl` records timestamp, input, retrieved vignettes, raw LLM output, parsed result, latency, schema-validity, and any error — one JSON line per call.
+
+---
 
 ### Expected Biases
 
@@ -102,34 +177,61 @@ Running `python -m src.main` with the default taste profile (`genre: [pop, indie
 
 ### Setup
 
-1. Create a virtual environment (optional but recommended):
+1. Create a virtual environment (recommended):
 
    ```bash
    python -m venv .venv
    source .venv/bin/activate      # Mac or Linux
    .venv\Scripts\activate         # Windows
+   ```
 
-2. Install dependencies
+2. Install dependencies:
 
-```bash
-pip install -r requirements.txt
-```
+   ```bash
+   pip install -r requirements.txt
+   ```
 
-3. Run the app:
+   First run pulls down the `all-MiniLM-L6-v2` embedding model (~80MB, cached after).
 
-```bash
-python -m src.main
-```
+3. Configure your Anthropic API key:
+
+   ```bash
+   cp .env.example .env
+   # then edit .env and paste your real key from https://console.anthropic.com/
+   ```
+
+   Without a key, the vibe check-in will always fall back to its safe preset.
+
+4. Run the Streamlit app:
+
+   ```bash
+   streamlit run app.py
+   ```
+
+   The CLI version still works too:
+
+   ```bash
+   python -m src.main
+   ```
 
 ### Running Tests
-
-Run the starter tests with:
 
 ```bash
 pytest
 ```
 
-You can add more tests in `tests/test_recommender.py`.
+Tests live in `tests/test_recommender.py`.
+
+### Where to look
+
+- [`app.py`](app.py) — Streamlit UI with vibe check-in and manual tuning tabs
+- [`src/recommender.py`](src/recommender.py) — deterministic scoring + ranking
+- [`src/retrieval.py`](src/retrieval.py) — embeds the vignette corpus, serves top-k cosine lookups
+- [`src/extractor.py`](src/extractor.py) — RAG pipeline: retrieve → prompt Claude → validate → fallback → log
+- [`src/schema.py`](src/schema.py) — Pydantic guardrail and fallback preset
+- [`data/songs.csv`](data/songs.csv) — song catalog
+- [`data/vignettes.jsonl`](data/vignettes.jsonl) — the labelled corpus that grounds the LLM
+- `logs/aura.jsonl` — created at first run; one JSON line per LLM call
 
 ---
 

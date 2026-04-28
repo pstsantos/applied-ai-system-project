@@ -1,3 +1,8 @@
 pandas
 pytest
 streamlit
+anthropic>=0.39.0
+sentence-transformers>=3.0.0
+pydantic>=2.0
+python-dotenv>=1.0.0
+numpy>=1.24
