@@ -9,10 +9,14 @@ from src.recommender import load_songs, recommend_songs
 from src.retrieval import VignetteRetriever
 from src.extractor import VibeExtractor
 from src.schema import GENRES, MOODS
+from aura_theme import AURA_CSS
 
 load_dotenv()
 
 st.set_page_config(page_title="Aura", page_icon="🎧", layout="centered")
+
+# ── Inject theme ──────────────────────────────────────────────────────────────
+st.markdown(AURA_CSS, unsafe_allow_html=True)
 
 GENRE_OPTIONS = list(get_args(GENRES))
 MOOD_OPTIONS = list(get_args(MOODS))
@@ -43,9 +47,10 @@ songs = get_songs()
 st.title("🎧 Aura")
 st.caption("Tell it what you're feeling. Get five songs back.")
 
-if not os.getenv("ANTHROPIC_API_KEY"):
+if not os.getenv("GEMINI_API_KEY") and not os.getenv("GOOGLE_API_KEY"):
     st.error(
-        "Missing `ANTHROPIC_API_KEY`. Copy `.env.example` to `.env` and add your key. "
+        "Missing `GEMINI_API_KEY`. Copy `.env.example` to `.env` and add your key "
+        "(free at https://aistudio.google.com/app/apikey). "
         "The vibe check-in will fall back to a safe preset until then."
     )
 
@@ -134,7 +139,7 @@ with tab_manual:
                 "target_tempo_bpm": m_tempo,
                 "likes_acoustic": m_likes_acoustic,
             }
-            st.session_state.extraction_meta = None  # manual path = no RAG meta
+            st.session_state.extraction_meta = None
 
 # ── Results ──────────────────────────────────────────────────────────────────
 st.divider()
@@ -165,7 +170,7 @@ for i, (song, score, explanation) in enumerate(results, 1):
 # ── Copy-paste playlist ─────────────────────────────────────────────────────
 st.divider()
 st.subheader("📋 Build playlist on Spotify")
-st.caption("Copy this list, paste each line into Spotify search, save what you like.")
+st.caption("Copy this list, paste each line into Spotify (Prompted Playlist), save what you like.")
 playlist_text = "\n".join(
     f"{song['title']} - {song['artist']}" for song, _, _ in results
 )

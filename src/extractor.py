@@ -22,16 +22,16 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from anthropic import Anthropic, APIError, APITimeoutError
+from google import genai
+from google.genai import types
 from pydantic import ValidationError
 
 from src.retrieval import VignetteRetriever, RetrievalResult
 from src.schema import GENRES, MOODS, UserPrefs, FALLBACK_PREFS
 
 
-MODEL = "claude-haiku-4-5-20251001"
-TIMEOUT_SECONDS = 10
-MAX_TOKENS = 600
+MODEL = "gemini-2.5-flash"
+MAX_TOKENS = 1024
 LOG_PATH = Path("logs/aura.jsonl")
 
 JSON_BLOCK = re.compile(r"\{.*\}", re.DOTALL)
@@ -118,12 +118,13 @@ class VibeExtractor:
     def __init__(
         self,
         retriever: VignetteRetriever,
-        client: Anthropic | None = None,
+        client: genai.Client | None = None,
         model: str = MODEL,
         k_retrieved: int = 3,
     ):
         self.retriever = retriever
-        self.client = client or Anthropic(timeout=TIMEOUT_SECONDS)
+        # genai.Client() reads GEMINI_API_KEY (or GOOGLE_API_KEY) from env
+        self.client = client or genai.Client()
         self.model = model
         self.k_retrieved = k_retrieved
 
@@ -158,7 +159,7 @@ class VibeExtractor:
 
         prompt = self._build_user_prompt(free_text, bubbles, retrieved)
 
-        raw, latency_ms, error = self._call_claude(prompt)
+        raw, latency_ms, error = self._call_llm(prompt)
         meta["raw_output"] = raw
         meta["latency_ms"] = latency_ms
         meta["error"] = error
@@ -195,27 +196,31 @@ class VibeExtractor:
             f"Output JSON only."
         )
 
-    def _call_claude(self, user_prompt: str) -> tuple[str | None, int, str | None]:
-        """Returns (raw_text, latency_ms, error). raw_text is None on transport failure."""
+    def _call_llm(self, user_prompt: str) -> tuple[str | None, int, str | None]:
+        """Returns (raw_text, latency_ms, error). raw_text is None on transport failure.
+
+        Uses Gemini's response_mime_type='application/json' to force valid JSON output —
+        a stronger upstream guardrail than free-form text + regex extraction.
+        """
         start = time.perf_counter()
         try:
-            response = self.client.messages.create(
+            response = self.client.models.generate_content(
                 model=self.model,
-                max_tokens=MAX_TOKENS,
-                system=SYSTEM_PROMPT,
-                messages=[{"role": "user", "content": user_prompt}],
+                contents=user_prompt,
+                config=types.GenerateContentConfig(
+                    system_instruction=SYSTEM_PROMPT,
+                    max_output_tokens=MAX_TOKENS,
+                    response_mime_type="application/json",
+                    # Gemini 2.5 has reasoning ("thinking") on by default — it eats
+                    # the output token budget before the model emits visible text.
+                    # Structured extraction doesn't need it; disable for speed + reliability.
+                    thinking_config=types.ThinkingConfig(thinking_budget=0),
+                ),
             )
             latency_ms = int((time.perf_counter() - start) * 1000)
-            text = "".join(
-                block.text for block in response.content if getattr(block, "type", "") == "text"
-            )
-            return text, latency_ms, None
-        except APITimeoutError:
-            return None, int((time.perf_counter() - start) * 1000), "Claude API timeout"
-        except APIError as e:
-            return None, int((time.perf_counter() - start) * 1000), f"Claude API error: {e}"
+            return response.text, latency_ms, None
         except Exception as e:
-            return None, int((time.perf_counter() - start) * 1000), f"unexpected error: {e}"
+            return None, int((time.perf_counter() - start) * 1000), f"Gemini API error: {e}"
 
     def _fallback(self, bubbles: list[str]) -> UserPrefs:
         """
