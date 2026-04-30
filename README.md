@@ -1,4 +1,3 @@
-<img width="772" height="586" alt="Screenshot 2026-04-30 at 1 04 36 AM" src="https://github.com/user-attachments/assets/5a7a166c-c73f-4ff6-afa6-621d1a4f78c9" />
 # 🎵 Music Recommender Simulation
 
 ## Project Summary
@@ -10,6 +9,8 @@ Behind the vibe check-in, a **RAG pipeline** retrieves the most semantically sim
 The deterministic scoring engine does the actual ranking. The LLM is a UX adapter on the front; the recommender stays testable and the AI layer stays swappable.
 
 The project also includes adversarial tests that expose real bugs in the scoring logic, a model card documenting limitations and bias, and a reflection on what a simple algorithm can and can't do.
+
+<img width="772" height="586" alt="Screenshot 2026-04-30 at 1 04 36 AM" src="https://github.com/user-attachments/assets/5a7a166c-c73f-4ff6-afa6-621d1a4f78c9" />
 
 ---
 
