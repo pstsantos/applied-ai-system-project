@@ -1,6 +1,5 @@
+<img width="772" height="586" alt="Screenshot 2026-04-30 at 1 04 36 AM" src="https://github.com/user-attachments/assets/5a7a166c-c73f-4ff6-afa6-621d1a4f78c9" />
 # 🎵 Music Recommender Simulation
-
-https://www.canva.com/design/DAHIS0hSy5c/JIItJIYPQTl-8nBWwKqFVg/view?utm_content=DAHIS0hSy5c&utm_campaign=designshare&utm_medium=link&utm_source=viewer
 
 ## Project Summary
 
