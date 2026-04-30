@@ -1,5 +1,7 @@
 # 🎵 Music Recommender Simulation
 
+https://www.canva.com/design/DAHIS0hSy5c/JIItJIYPQTl-8nBWwKqFVg/view?utm_content=DAHIS0hSy5c&utm_campaign=designshare&utm_medium=link&utm_source=viewer
+
 ## Project Summary
 
 Aura is a music recommender with two ways in: a **vibe check-in** where you describe what's going on in plain English ("I just passed Calc II", "rainy day, can't focus"), and a **manual tuning** mode where you dial genre, mood, energy, valence, danceability, and tempo by hand.
